@@ -1,6 +1,6 @@
 export async function summarizeIssue(issueBody: string): Promise<{
   summary: string;
-  difficulty: string;
+  difficulty: "Easy" | "Medium" | "Hard" | "Unknown";
 }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -33,7 +33,15 @@ export async function summarizeIssue(issueBody: string): Promise<{
   const reply = data.choices?.[0]?.message?.content || "";
 
   const match = reply.match(/(Easy|Medium|Hard)/i);
-  const difficulty = match?.[1] || "Unknown";
+  const difficulty = (match?.[1] || "Unknown") as
+    | "Easy"
+    | "Medium"
+    | "Hard"
+    | "Unknown";
+
+  if (!reply || reply.trim().length < 10) {
+    throw new Error("Empty summary");
+  }
 
   return {
     summary: reply.trim(),

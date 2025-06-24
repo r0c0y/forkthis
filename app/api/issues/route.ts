@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "GitHub API error" }, { status: res.status });
   }
 
-  const data = await res.json();
+ const data = await res.json();
   const filtered = data.filter((issue: GitHubIssue) => !issue.pull_request);
 
+  console.log(`✅ [API] Issues fetched for ${repo}:`, filtered.length); 
   return NextResponse.json(filtered);
 }

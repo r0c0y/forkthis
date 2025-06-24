@@ -1,6 +1,7 @@
 // app/layout.tsx
 import './globals.css';
 import type { Metadata } from 'next';
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: 'ForkThis',
@@ -13,8 +14,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-white text-black">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

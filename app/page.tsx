@@ -6,8 +6,10 @@ import { fetchIssues } from "@/lib/github";
 import { summarizeIssue } from "@/lib/ai";
 import { GitHubIssue } from "@/types/github";
 import DifficultyFilter from "@/components/DifficultyFilter";
+import ThemeToggle from "@/components/ThemeToggle";
+import AISummaryToggle from "@/components/AISummaryToggle";
+import ThemeSelector from "@/components/ThemeSelector";
 
-// 🔥 Extend the GitHubIssue type to include AI-generated fields
 interface ExtendedIssue extends GitHubIssue {
   summary: string;
   difficulty: "Easy" | "Medium" | "Hard" | "Unknown";
@@ -17,18 +19,34 @@ export default function Home() {
   const [issues, setIssues] = useState<ExtendedIssue[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("All");
+  const [showSummary, setShowSummary] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const handleSearch = async (repo: string) => {
     setError("");
     setIssues([]);
+    setLoading(true);
 
     try {
       const result = await fetchIssues(repo);
 
       const detailedIssues = await Promise.all(
         result.map(async (issue): Promise<ExtendedIssue> => {
+          if (!showSummary) {
+            return {
+              ...issue,
+              summary: "",
+              difficulty: "Unknown",
+            };
+          }
+
           try {
             const summaryData = await summarizeIssue(issue.body || "");
+
+            if (!summaryData.summary || summaryData.summary.length < 10) {
+              throw new Error("Empty summary");
+            }
+
             return {
               ...issue,
               summary: summaryData.summary,
@@ -53,6 +71,8 @@ export default function Home() {
     } catch (err) {
       console.error("GitHub fetch error:", err);
       setError("Failed to fetch issues. Check repo name.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,10 +89,17 @@ export default function Home() {
 
       <RepoSearchBar onSearch={handleSearch} />
       <DifficultyFilter selected={filter} onChange={setFilter} />
+      <ThemeToggle />
+      <ThemeSelector />
+      <AISummaryToggle
+        enabled={showSummary}
+        onToggle={() => setShowSummary(!showSummary)}
+      />
 
       {error && <p className="text-red-500 mt-4">{error}</p>}
+      {loading && <p className="text-center mt-6 text-blue-500">⏳ Loading issues...</p>}
 
-      {filteredIssues.length === 0 ? (
+      {filteredIssues.length === 0 && !loading ? (
         <p className="text-center text-gray-400 mt-8">
           No issues match this filter.
         </p>
@@ -84,12 +111,17 @@ export default function Home() {
                 href={issue.html_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-blue-600"
+                className="font-medium text-blue-600 underline decoration-dotted"
+                aria-label={`Go to GitHub issue ${issue.title}`}
               >
                 #{issue.number} - {issue.title}
               </a>
-              <p className="text-sm text-gray-500">by {issue.user.login}</p>
-              <p className="mt-1 text-gray-700 italic">{issue.summary}</p>
+              <p className="text-sm text-gray-500 mt-1">by {issue.user.login}</p>
+              {showSummary && issue.summary && issue.summary !== "Couldn't summarize issue." && (
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                  💬 {issue.summary}
+                </p>
+              )}
               <span className="inline-block mt-2 px-2 py-1 bg-gray-200 rounded text-sm font-medium">
                 Difficulty: {issue.difficulty}
               </span>
