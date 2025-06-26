@@ -32,8 +32,7 @@ export default function Home() {
   const [bookmarks, setBookmarks] = useState<number[]>([]);
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [nextIndex, setNextIndex] = useState(10);
-  
-
+  const [lastRepoSearched, setLastRepoSearched] = useState("");
 
   const handleSearch = useCallback(async (repo: string) => {
     setError("");
@@ -41,7 +40,8 @@ export default function Home() {
     setAllIssues([]);
     setLoading(true);
     setLastRepoSearched(repo);
-  
+    localStorage.setItem("lastRepo", repo); // ✅ Save repo name for bookmark page
+
     try {
       const result = await fetchIssues(repo);
       const extended: ExtendedIssue[] = await Promise.all(
@@ -64,7 +64,7 @@ export default function Home() {
           };
         })
       );
-  
+
       setAllIssues(extended);
       setIssues(extended.slice(0, 10));
       setNextIndex(10);
@@ -76,12 +76,11 @@ export default function Home() {
     }
   }, [showSummary]);
 
-  
   // 🆕 Load state from localStorage project (if present)
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("bookmarkedIssues") || "[]");
     setBookmarks(stored);
-  
+
     const savedProject = localStorage.getItem("forkthis-project");
     if (savedProject) {
       const parsed = JSON.parse(savedProject);
@@ -96,16 +95,28 @@ export default function Home() {
     }
   }, [handleSearch]); // ✅ include handleSearch now that it's memoized
 
-  const toggleBookmark = (issueNumber: number) => {
-    const updated = bookmarks.includes(issueNumber)
-      ? bookmarks.filter((n) => n !== issueNumber)
-      : [...bookmarks, issueNumber];
+  useEffect(() => {
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+    setBookmarks(allBookmarks[lastRepoSearched] || []);
+  }, [lastRepoSearched]);
 
-    setBookmarks(updated);
-    localStorage.setItem("bookmarkedIssues", JSON.stringify(updated));
+  const toggleBookmark = (issueNumber: number) => {
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+    const repo = lastRepoSearched;
+    const current = allBookmarks[repo] || [];
+
+    const updatedRepoBookmarks = current.includes(issueNumber)
+      ? current.filter((n: number)=> n !== issueNumber)
+      : [...current, issueNumber];
+
+    allBookmarks[repo] = updatedRepoBookmarks;
+    setBookmarks(updatedRepoBookmarks);
+    localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
   };
 
   const saveProject = () => {
+    const name = prompt("Enter a name for this project:");
+    if (!name) return;
     const projectData = {
       filter,
       filterLabel,
@@ -116,12 +127,26 @@ export default function Home() {
       showSummary,
       repo: lastRepoSearched,
     };
-    localStorage.setItem("forkthis-project", JSON.stringify(projectData));
+    localStorage.setItem(`forkthis-project:${name}`, JSON.stringify(projectData));
     alert("✅ Project saved!");
   };
 
-  const [lastRepoSearched, setLastRepoSearched] = useState("");
+  const handleClearProject = () => {
+    localStorage.removeItem("forkthis-project");
+    setFilter("All");
+    setFilterLabel("");
+    setSortOrder("newest");
+    setShowOpenOnly(false);
+    setShowBeginnerOnly(false);
+    setShowBookmarksOnly(false);
+    setShowSummary(false);
+    setIssues([]);
+    setAllIssues([]);
+    setLastRepoSearched("");
+    alert("Project reset.");
+  };
 
+  // Remove unused handleRepoInput, and use handleSearch directly via RepoSearchBar
   const allLabels = Array.from(
     new Set(allIssues.flatMap((issue) => issue.labels.map((label) => label.name)))
   );
@@ -153,12 +178,18 @@ export default function Home() {
       return 0;
     });
 
-
-    
-
   return (
     <main className="p-8 max-w-3xl mx-auto">
       <h1 className="text-4xl font-bold text-center">🚀 ForkThis</h1>
+      <a href="/projects" className="text-sm underline text-blue-600 hover:text-blue-800">
+  🗂 View Saved Projects
+      </a>
+      <a
+  href="/bookmarks"
+  className="text-sm underline text-blue-600 hover:text-blue-800 block mt-2"
+>
+  ⭐ View Bookmarked Issues
+</a>
       <p className="text-gray-500 text-center mt-2">
         Find beginner-friendly GitHub issues.
       </p>
@@ -169,6 +200,12 @@ export default function Home() {
         className="text-xs border rounded px-2 py-1 mt-2 text-blue-700 border-blue-500 hover:bg-blue-50"
       >
         💾 Save This Project
+      </button>
+      <button
+        onClick={handleClearProject}
+        className="text-xs border rounded px-2 py-1 mt-2 ml-2 text-red-700 border-red-500 hover:bg-red-50"
+      >
+        🗑 Reset Project
       </button>
       <DifficultyFilter selected={filter} onChange={setFilter} />
       <ThemeSelector />

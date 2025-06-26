@@ -1,18 +1,28 @@
 import { GitHubIssue } from "@/types/github";
 
 export async function fetchIssues(repo: string): Promise<GitHubIssue[]> {
-  const res = await fetch("/api/issues", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ repo }),
-  });
+  const [owner, name] = repo.split("/");
+  const all: GitHubIssue[] = [];
+  let page = 1;
 
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error?.error || "Failed to fetch issues");
+  while (true) {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${name}/issues?per_page=100&page=${page}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+
+    if (!res.ok) break;
+
+    const data = await res.json();
+    const filtered = data.filter((issue: GitHubIssue) => !issue.pull_request);
+    all.push(...filtered);
+    if (data.length < 100) break;
+
+    page++;
   }
 
-  return await res.json();
+  return all;
 }
+
