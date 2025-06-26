@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useCallback } from "react"; // add this with other imports
+
 import Image from "next/image";
 import RepoSearchBar from "@/components/RepoSearchBar";
 import { fetchIssues } from "@/lib/github";
@@ -9,7 +11,6 @@ import { GitHubIssue } from "@/types/github";
 import DifficultyFilter from "@/components/DifficultyFilter";
 import AISummaryToggle from "@/components/AISummaryToggle";
 import ThemeSelector from "@/components/ThemeSelector";
-import IssueTooltip from "@/components/IssueTooltip";
 import IssueControls from "@/components/IssueControls";
 
 interface ExtendedIssue extends GitHubIssue {
@@ -19,96 +20,141 @@ interface ExtendedIssue extends GitHubIssue {
 
 export default function Home() {
   const [issues, setIssues] = useState<ExtendedIssue[]>([]);
+  const [allIssues, setAllIssues] = useState<ExtendedIssue[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("All");
   const [showSummary, setShowSummary] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filterLabel, setFilterLabel] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [showOpenOnly, setShowOpenOnly] = useState(false);
+  const [showBeginnerOnly, setShowBeginnerOnly] = useState(false);
+  const [bookmarks, setBookmarks] = useState<number[]>([]);
+  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [nextIndex, setNextIndex] = useState(10);
+  
 
-  const allLabels = Array.from(
-    new Set(
-      issues.flatMap(issue => issue.labels.map(label => label.name))
-    )
-  );
 
-  // Filtering and sorting logic (single source of truth)
-  let filteredIssues = issues;
-  if (filterLabel) {
-    filteredIssues = filteredIssues.filter(issue =>
-      issue.labels.some(label => label.name === filterLabel)
-    );
-  }
-  if (filter !== "All") {
-    filteredIssues = filteredIssues.filter(issue => issue.difficulty === filter);
-  }
-  if (sortOrder === "newest") {
-    filteredIssues = filteredIssues.slice().sort((a, b) => b.number - a.number);
-  } else if (sortOrder === "oldest") {
-    filteredIssues = filteredIssues.slice().sort((a, b) => a.number - b.number);
-  } else if (sortOrder === "title") {
-    filteredIssues = filteredIssues.slice().sort((a, b) =>
-      a.title.localeCompare(b.title)
-    );
-  }
-
-  const handleSearch = async (repo: string) => {
+  const handleSearch = useCallback(async (repo: string) => {
     setError("");
     setIssues([]);
+    setAllIssues([]);
     setLoading(true);
-
+    setLastRepoSearched(repo);
+  
     try {
       const result = await fetchIssues(repo);
-
-      const detailedIssues = await Promise.all(
-        result.map(async (issue): Promise<ExtendedIssue> => {
-          if (!showSummary) {
-            return {
-              ...issue,
-              summary: "",
-              difficulty: "Unknown",
-            };
-          }
-
-          try {
-            const summaryData = await summarizeIssue(issue.body || "");
-
-            if (!summaryData.summary || summaryData.summary.trim() === "") {
-              throw new Error("Empty summary");
+      const extended: ExtendedIssue[] = await Promise.all(
+        result.map(async (issue) => {
+          let summary = "";
+          let difficulty: ExtendedIssue["difficulty"] = "Unknown";
+          if (showSummary) {
+            try {
+              const res = await summarizeIssue(issue.body || "");
+              summary = res.summary;
+              difficulty = res.difficulty;
+            } catch (e) {
+              console.error("Summary error:", e);
             }
-
-            return {
-              ...issue,
-              summary: summaryData.summary,
-              difficulty: summaryData.difficulty,
-            };
-          } catch (err) {
-            console.error("AI error:", err);
-            if (
-              err instanceof Error &&
-              err.message.includes("insufficient_quota")
-            ) {
-              setError(
-                "AI summary failed due to insufficient quota. Please check your OpenAI plan and billing details."
-              );
-            }
-            return {
-              ...issue,
-              summary: "Couldn't summarize issue.",
-              difficulty: "Unknown",
-            };
           }
+          return {
+            ...issue,
+            summary,
+            difficulty,
+          };
         })
       );
-
-      setIssues(detailedIssues);
+  
+      setAllIssues(extended);
+      setIssues(extended.slice(0, 10));
+      setNextIndex(10);
     } catch (err) {
       console.error("GitHub fetch error:", err);
       setError("Failed to fetch issues. Check repo name.");
     } finally {
       setLoading(false);
     }
+  }, [showSummary]);
+
+  
+  // 🆕 Load state from localStorage project (if present)
+  useEffect(() => {
+    const stored = JSON.parse(localStorage.getItem("bookmarkedIssues") || "[]");
+    setBookmarks(stored);
+  
+    const savedProject = localStorage.getItem("forkthis-project");
+    if (savedProject) {
+      const parsed = JSON.parse(savedProject);
+      setFilter(parsed.filter || "All");
+      setFilterLabel(parsed.filterLabel || "");
+      setSortOrder(parsed.sortOrder || "newest");
+      setShowOpenOnly(parsed.showOpenOnly || false);
+      setShowBeginnerOnly(parsed.showBeginnerOnly || false);
+      setShowBookmarksOnly(parsed.showBookmarksOnly || false);
+      setShowSummary(parsed.showSummary || false);
+      if (parsed.repo) handleSearch(parsed.repo);
+    }
+  }, [handleSearch]); // ✅ include handleSearch now that it's memoized
+
+  const toggleBookmark = (issueNumber: number) => {
+    const updated = bookmarks.includes(issueNumber)
+      ? bookmarks.filter((n) => n !== issueNumber)
+      : [...bookmarks, issueNumber];
+
+    setBookmarks(updated);
+    localStorage.setItem("bookmarkedIssues", JSON.stringify(updated));
   };
+
+  const saveProject = () => {
+    const projectData = {
+      filter,
+      filterLabel,
+      sortOrder,
+      showOpenOnly,
+      showBeginnerOnly,
+      showBookmarksOnly,
+      showSummary,
+      repo: lastRepoSearched,
+    };
+    localStorage.setItem("forkthis-project", JSON.stringify(projectData));
+    alert("✅ Project saved!");
+  };
+
+  const [lastRepoSearched, setLastRepoSearched] = useState("");
+
+  const allLabels = Array.from(
+    new Set(allIssues.flatMap((issue) => issue.labels.map((label) => label.name)))
+  );
+
+  const filteredIssues = issues
+    .filter((issue) => (showBookmarksOnly ? bookmarks.includes(issue.number) : true))
+    .filter((issue) =>
+      filterLabel === "" || filterLabel === "All"
+        ? true
+        : issue.labels.some((label) => label.name === filterLabel)
+    )
+    .filter((issue) => (filter === "All" ? true : issue.difficulty === filter))
+    .filter((issue) => (showOpenOnly ? issue.state === "open" : true))
+    .filter((issue) =>
+      showBeginnerOnly
+        ? issue.labels.some((label) =>
+            /good first issue|beginner|easy/i.test(label.name)
+          )
+        : true
+    )
+    .sort((a, b) => {
+      if (sortOrder === "newest") {
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      } else if (sortOrder === "oldest") {
+        return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      } else if (sortOrder === "title") {
+        return a.title.localeCompare(b.title);
+      }
+      return 0;
+    });
+
+
+    
 
   return (
     <main className="p-8 max-w-3xl mx-auto">
@@ -118,12 +164,43 @@ export default function Home() {
       </p>
 
       <RepoSearchBar onSearch={handleSearch} />
+      <button
+        onClick={saveProject}
+        className="text-xs border rounded px-2 py-1 mt-2 text-blue-700 border-blue-500 hover:bg-blue-50"
+      >
+        💾 Save This Project
+      </button>
       <DifficultyFilter selected={filter} onChange={setFilter} />
       <ThemeSelector />
-      <AISummaryToggle
-        enabled={showSummary}
-        onToggle={() => setShowSummary(!showSummary)}
-      />
+      <AISummaryToggle enabled={showSummary} onToggle={() => setShowSummary(!showSummary)} />
+
+      <label className="text-sm flex items-center gap-1 mt-2">
+        <input
+          type="checkbox"
+          checked={showOpenOnly}
+          onChange={() => setShowOpenOnly(!showOpenOnly)}
+          className="accent-blue-600"
+        />
+        Show only open issues
+      </label>
+      <label className="text-sm flex items-center gap-1 mt-2">
+        <input
+          type="checkbox"
+          checked={showBeginnerOnly}
+          onChange={() => setShowBeginnerOnly(!showBeginnerOnly)}
+          className="accent-green-600"
+        />
+        Show only beginner-friendly issues
+      </label>
+      <label className="text-sm flex items-center gap-1 mt-2">
+        <input
+          type="checkbox"
+          checked={showBookmarksOnly}
+          onChange={() => setShowBookmarksOnly(!showBookmarksOnly)}
+          className="accent-yellow-500"
+        />
+        Show only bookmarked issues
+      </label>
 
       <IssueControls
         allLabels={allLabels}
@@ -134,46 +211,23 @@ export default function Home() {
       />
 
       {error && <p className="text-red-500 mt-4">{error}</p>}
-      {loading && (
-        <p className="text-center mt-6 text-blue-500">⏳ Loading issues...</p>
-      )}
+      {loading && <p className="text-center mt-6 text-blue-500">⏳ Loading issues...</p>}
 
       {filteredIssues.length === 0 && !loading ? (
-        <p className="text-center text-gray-400 mt-8">
-          No issues match this filter.
-        </p>
+        <p className="text-center text-gray-400 mt-8">No issues match this filter.</p>
       ) : (
         <ul className="mt-8 space-y-4">
           {filteredIssues.map((issue) => (
             <li key={issue.number} className="border p-4 rounded-md shadow-sm">
-              {/* Title + summary tooltip */}
-              {showSummary &&
-              issue.summary &&
-              issue.summary !== "Couldn't summarize issue." ? (
-                <IssueTooltip content={issue.summary}>
-                  <a
-                    href={issue.html_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-blue-600 underline decoration-dotted"
-                    aria-label={`Go to GitHub issue ${issue.title}`}
-                  >
-                    #{issue.number} - {issue.title}
-                  </a>
-                </IssueTooltip>
-              ) : (
-                <a
-                  href={issue.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-blue-600 underline decoration-dotted"
-                  aria-label={`Go to GitHub issue ${issue.title}`}
-                >
-                  #{issue.number} - {issue.title}
-                </a>
-              )}
+              <a
+                href={issue.html_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-blue-600 underline decoration-dotted"
+              >
+                #{issue.number} - {issue.title}
+              </a>
 
-              {/* Avatar and user */}
               <div className="flex items-center gap-2 mb-1 mt-1">
                 <Image
                   src={issue.user.avatar_url}
@@ -185,39 +239,73 @@ export default function Home() {
                 <p className="text-xs text-gray-500">by {issue.user.login}</p>
               </div>
 
-              {/* Label Tags */}
               <div className="flex flex-wrap gap-1 mt-1">
-                {issue.labels.map((label) => (
-                  <span
-                    key={label.name}
-                    className="text-xs px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: `#${label.color}` }}
-                  >
-                    {label.name}
-                  </span>
-                ))}
+                {issue.labels.map((label) => {
+                  const isBeginnerLabel = /good first issue|beginner|easy/i.test(label.name);
+                  return (
+                    <span
+                      key={label.name}
+                      className={
+                        "text-xs px-2 py-0.5 rounded-full font-medium " +
+                        (isBeginnerLabel
+                          ? "bg-green-600 text-white border border-green-800"
+                          : "text-white")
+                      }
+                      style={!isBeginnerLabel ? { backgroundColor: `#${label.color}` } : {}}
+                    >
+                      {label.name}
+                    </span>
+                  );
+                })}
               </div>
 
-              {/* Optional inline summary */}
-              {showSummary &&
-                issue.summary &&
-                issue.summary !== "Couldn't summarize issue." && (
-                  <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                    💬 {issue.summary}
-                  </p>
-                )}
+              {showSummary && issue.summary && (
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                  💬 {issue.summary}
+                </p>
+              )}
 
               <span className="inline-block mt-2 px-2 py-1 bg-gray-200 rounded text-sm font-medium">
                 Difficulty: {issue.difficulty}
               </span>
 
-              {/* Status Badge */}
               <p className="text-xs mt-1">
                 {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} • Updated {new Date(issue.updated_at).toLocaleDateString()}
               </p>
+
+              <button
+                onClick={() => toggleBookmark(issue.number)}
+                className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1"
+                style={{
+                  backgroundColor: bookmarks.includes(issue.number)
+                    ? "rgb(229 231 235)"
+                    : "rgb(229 231 235)",
+                  color: bookmarks.includes(issue.number) ? "rgb(37 99 235)" : "inherit",
+                  border: bookmarks.includes(issue.number)
+                    ? "1px solid rgb(37 99 235)"
+                    : "1px solid transparent",
+                }}
+              >
+                {bookmarks.includes(issue.number) ? "⭐ Bookmarked" : "⭐ Bookmark"}
+              </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {issues.length < allIssues.length && (
+        <div className="text-center mt-4">
+          <button
+            onClick={() => {
+              const nextChunk = allIssues.slice(nextIndex, nextIndex + 10);
+              setIssues((prev) => [...prev, ...nextChunk]);
+              setNextIndex((prev) => prev + 10);
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded"
+          >
+            Load More
+          </button>
+        </div>
       )}
     </main>
   );

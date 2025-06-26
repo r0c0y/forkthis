@@ -39,6 +39,9 @@ export async function POST(req: NextRequest) {
         name: label.name,
         color: label.color,
       })),
+      state: issue.state,
+      updated_at: issue.updated_at,
+      // difficulty: "Unknown", // Default, can be enhanced with label parsing later
     }));
 
   console.log(`✅ [API] Issues fetched for ${repo}:`, simplifiedIssues.length);

@@ -18,9 +18,10 @@ interface IssueCardProps {
     state: "open" | "closed";
     updated_at: string;
   };
+  isBookmarked: boolean;
 }
 
-export default function IssueCard({ issue }: IssueCardProps) {
+export default function IssueCard({ issue, isBookmarked }: IssueCardProps) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
@@ -49,15 +50,16 @@ export default function IssueCard({ issue }: IssueCardProps) {
   return (
     <div
       className={cn(
-        "group relative border p-4 rounded-xl hover:shadow-md transition-all",
-        loading && "opacity-50"
+        "group relative border rounded-xl hover:shadow-md transition-all",
+        "p-4 sm:p-6 md:p-8",
+        isBookmarked && "bg-yellow-50 border-yellow-400"
       )}
     >
       <a
         href={issue.html_url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-blue-600 font-medium text-sm"
+        className="text-blue-600 font-medium text-base sm:text-lg"
       >
         #{issue.number} - {issue.title}
       </a>
@@ -71,11 +73,11 @@ export default function IssueCard({ issue }: IssueCardProps) {
           height={24}
           className="w-6 h-6 rounded-full"
         />
-        <p className="text-xs text-gray-500">by {issue.user.login}</p>
+        <p className="text-xs sm:text-sm text-gray-500">by {issue.user.login}</p>
       </div>
 
       {/* Status and update info */}
-      <p className="text-xs mt-1">
+      <p className="text-xs sm:text-sm mt-1">
         {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} •{" "}
         {`Updated ${new Date(issue.updated_at).toLocaleDateString()}`}
       </p>
