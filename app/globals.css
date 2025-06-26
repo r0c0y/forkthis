@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* Base :root variables for light theme and general styles */
-:root,
+/* :root,
 .theme-light {
   --background: #ffffff;
   --foreground: #171717;
@@ -9,7 +9,7 @@
   --font-mono: var(--font-geist-mono);
   --bg: var(--background);
   --text: var(--foreground);
-}
+} */
 
 /* Dark theme */
 @media (prefers-color-scheme: dark) {

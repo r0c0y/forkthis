@@ -1,5 +1,7 @@
+// app/api/issues/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { GitHubIssue } from "@/types/github"; // ✅ CORRECT
+import { GitHubIssue } from "@/types/github";
+import { GitHubLabel } from "@/types/github";
 
 export async function POST(req: NextRequest) {
   const { repo } = await req.json();
@@ -20,9 +22,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "GitHub API error" }, { status: res.status });
   }
 
- const data = await res.json();
-  const filtered = data.filter((issue: GitHubIssue) => !issue.pull_request);
+  const data = await res.json();
 
-  console.log(`✅ [API] Issues fetched for ${repo}:`, filtered.length); 
-  return NextResponse.json(filtered);
+  const simplifiedIssues = data
+    .filter((issue: GitHubIssue) => !issue.pull_request)
+    .map((issue: GitHubIssue) => ({
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      html_url: issue.html_url,
+      user: {
+        login: issue.user.login,
+        avatar_url: issue.user.avatar_url,
+      },
+      labels: (issue.labels || []).map((label: GitHubLabel) => ({
+        name: label.name,
+        color: label.color,
+      })),
+    }));
+
+  console.log(`✅ [API] Issues fetched for ${repo}:`, simplifiedIssues.length);
+  return NextResponse.json(simplifiedIssues);
 }

@@ -16,8 +16,8 @@ export default function ThemeSelector() {
         <button
           key={t}
           onClick={() => setTheme(t)}
-          className={`px-3 py-1 rounded border ${
-            theme === t ? "bg-gray-300 dark:bg-gray-700" : ""
+          className={`px-3 py-1 rounded-full border ${
+            theme === t ? "bg-gray-800 text-white dark:bg-white dark:text-black" : ""
           }`}
         >
           {t}
