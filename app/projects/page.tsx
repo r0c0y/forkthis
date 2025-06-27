@@ -33,9 +33,59 @@ export default function SavedProjectsPage() {
     setProjects(projects.filter((p) => p.name !== name));
   };
 
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        // Save each project to localStorage
+        Object.entries(imported).forEach(([key, value]) => {
+          localStorage.setItem(key, JSON.stringify(value));
+        });
+        alert("Projects imported!");
+        window.location.reload();
+      } catch {
+        alert("Invalid file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-4">📦 Saved Projects</h1>
+
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => {
+            // Gather all projects into an object
+            const projectsToExport: Record<string, unknown> = {};
+            Object.entries(localStorage)
+              .filter(([key]) => key.startsWith("forkthis-project:"))
+              .forEach(([key, value]) => {
+                projectsToExport[key] = JSON.parse(value);
+              });
+            const blob = new Blob([JSON.stringify(projectsToExport, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "forkthis-projects.json";
+            a.click();
+          }}
+          className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+        >
+          📤 Export Projects
+        </button>
+
+        <input
+          type="file"
+          accept="application/json"
+          onChange={handleImport}
+          className="mt-4"
+        />
+      </div>
 
       {projects.length === 0 ? (
         <p className="text-gray-500">No saved projects found.</p>

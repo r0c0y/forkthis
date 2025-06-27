@@ -2,14 +2,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { fetchIssues } from "@/lib/github";
 import { GitHubIssue } from "@/types/github";
 
 interface ExtendedIssue extends GitHubIssue {
   summary?: string;
-  difficulty?: "Easy" | "Medium" | "Hard" | "Unknown";
+  repo?: string;
 }
 
 export default function BookmarksPage() {
@@ -20,11 +19,26 @@ export default function BookmarksPage() {
   useEffect(() => {
     const loadBookmarks = async () => {
       try {
-        const stored = JSON.parse(localStorage.getItem("bookmarkedIssues") || "[]");
-        const repo = localStorage.getItem("lastRepo") || "vercel/next.js";
-        const all = await fetchIssues(repo);
-        const filtered = all.filter((issue) => stored.includes(issue.number));
-        setIssues(filtered);
+        const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+        const repos = Object.keys(allBookmarks);
+        let allBookmarkedIssues: ExtendedIssue[] = [];
+
+        console.log("allBookmarks", allBookmarks);
+        console.log("repos", repos);
+        console.log("allBookmarkedIssues", allBookmarkedIssues);
+
+        for (const repo of repos) {
+          if (!repo) continue; // Skip empty repo keys!
+          const issueNumbers: number[] = allBookmarks[repo];
+          if (!issueNumbers.length) continue;
+          const repoIssues = await fetchIssues(repo);
+          const filtered = repoIssues
+            .filter((issue) => issueNumbers.includes(issue.number))
+            .map((issue) => ({ ...issue, repo }));
+          allBookmarkedIssues = [...allBookmarkedIssues, ...filtered];
+        }
+
+        setIssues(allBookmarkedIssues);
       } catch (e) {
         console.error("Bookmark load error:", e);
         setError("Failed to load bookmarks.");
@@ -35,60 +49,50 @@ export default function BookmarksPage() {
     loadBookmarks();
   }, []);
 
-  const handleRemoveBookmark = (issueNumber: number) => {
-    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
-    const repo = "vercel/next.js"; // or lastRepoSearched
-    allBookmarks[repo] = (allBookmarks[repo] || []).filter((n: number) => n !== issueNumber);
-    localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
-    setIssues((prev) => prev.filter((issue) => issue.number !== issueNumber));
-  };
-
   return (
     <main className="max-w-3xl mx-auto p-8">
       <h1 className="text-3xl font-bold mb-4">⭐ Bookmarked Issues</h1>
-      <Link href="/">← Back to Home</Link>
-
-      {loading ? (
-        <p className="text-blue-500 mt-4">Loading...</p>
-      ) : error ? (
-        <p className="text-red-500 mt-4">{error}</p>
-      ) : issues.length === 0 ? (
-        <p className="text-gray-500 mt-4">No bookmarks found.</p>
-      ) : (
-        <ul className="space-y-4 mt-4">
-          {issues.map((issue) => (
-            <li key={issue.number} className="border p-4 rounded shadow-sm">
-              <a
-                href={issue.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-blue-600 underline"
-              >
-                #{issue.number} - {issue.title}
-              </a>
-              <div className="flex items-center gap-2 mt-1">
-                <Image
-                  src={issue.user.avatar_url}
-                  alt={issue.user.login}
-                  width={24}
-                  height={24}
-                  className="w-6 h-6 rounded-full"
-                />
-                <p className="text-xs text-gray-500">by {issue.user.login}</p>
-              </div>
-              <p className="text-xs mt-1">
-                {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} • Updated {new Date(issue.updated_at).toLocaleDateString()}
-              </p>
-              <button
-                onClick={() => handleRemoveBookmark(issue.number)}
-                className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
+      <Link href="/" className="text-sm underline text-black mb-4 block">
+        ← Back to Home
+      </Link>
+      {loading && <p>Loading...</p>}
+      {error && <p className="text-red-500">{error}</p>}
+      {!loading && !error && issues.length === 0 && (
+        <p className="text-gray-500">No bookmarked issues found.</p>
       )}
+      <ul className="space-y-4">
+        {issues.map((issue) => (
+          <li key={issue.repo + "-" + issue.number} className="border p-4 rounded shadow-sm">
+            <a
+              href={issue.html_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-blue-600 underline"
+            >
+              [{issue.repo}] #{issue.number} - {issue.title}
+            </a>
+            <p className="text-xs text-gray-500 mt-1">
+              {issue.state === "open" ? "🟢 Open" : "🔴 Closed"}
+            </p>
+            <button
+              onClick={() => {
+                if (!issue.repo) return; // Type guard: skip if repo is undefined
+                const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+                allBookmarks[issue.repo] = (allBookmarks[issue.repo] || []).filter(
+                  (n: number) => n !== issue.number
+                );
+                localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
+                setIssues((prev) =>
+                  prev.filter((i) => !(i.repo === issue.repo && i.number === issue.number))
+                );
+              }}
+              className="mt-2 text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200"
+            >
+              Remove Bookmark
+            </button>
+          </li>
+        ))}
+      </ul>
     </main>
   );
 }

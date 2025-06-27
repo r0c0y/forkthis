@@ -1,17 +1,13 @@
 // components/IssueCard.tsx
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import React from "react";
 import Image from "next/image";
 
 interface IssueCardProps {
   issue: {
     number: number;
     title: string;
-    user: {
-      login: string;
-      avatar_url: string;
-    };
+    user: { login: string; avatar_url: string };
     body: string;
     html_url: string;
     labels: { name: string; color: string }[];
@@ -19,12 +15,20 @@ interface IssueCardProps {
     updated_at: string;
   };
   isBookmarked: boolean;
+  onBookmark: () => void;
+  onRemoveBookmark: () => void;
 }
 
-export default function IssueCard({ issue, isBookmarked }: IssueCardProps) {
+export default function IssueCard({
+  issue,
+  isBookmarked,
+  onBookmark,
+  onRemoveBookmark,
+}: IssueCardProps) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+  const [showForkModal, setShowForkModal] = useState(false);
 
   const handleSummaryClick = async () => {
     if (summary || loading) return;
@@ -110,6 +114,79 @@ export default function IssueCard({ issue, isBookmarked }: IssueCardProps) {
       {visible && summary && (
         <div className="mt-2 text-sm text-gray-800">
           <p className="text-gray-600">💡 {summary}</p>
+        </div>
+      )}
+
+      {/* Bookmark/Remove buttons */}
+      <div className="flex gap-2 mt-2">
+        {isBookmarked && (
+          <button
+            onClick={onRemoveBookmark}
+            className="text-sm px-3 py-1 rounded bg-red-100 text-red-700 border border-red-300 hover:bg-red-200"
+          >
+            🗑 Remove Bookmark
+          </button>
+        )}
+        <button
+          onClick={onBookmark}
+          className={`text-sm px-3 py-1 rounded border ${
+            isBookmarked
+              ? "bg-yellow-100 text-yellow-700 border-yellow-300 hover:bg-yellow-200"
+              : "bg-gray-200 border-gray-300 hover:bg-gray-300"
+          }`}
+        >
+          ⭐ {isBookmarked ? "Toggle Bookmark" : "Bookmark"}
+        </button>
+      </div>
+
+      {/* Fork button */}
+      <button
+        onClick={() => setShowForkModal(true)}
+        className="mt-2 text-sm px-3 py-1 bg-purple-600 text-white rounded"
+      >
+        🧠 Fork
+      </button>
+
+      {/* Fork modal */}
+      {showForkModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded shadow-lg max-w-sm">
+            <h2 className="text-lg font-semibold mb-2">Fork this repo?</h2>
+            <p className="text-sm mb-4 text-gray-600">
+              Want to fork{" "}
+              <strong>
+                {issue.html_url.split("/").slice(0, 5).join("/")}
+              </strong>
+              ?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="text-sm px-3 py-1 bg-gray-300 rounded"
+                onClick={() => setShowForkModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="text-sm px-3 py-1 bg-blue-600 text-white rounded"
+                onClick={() => {
+                  const repoUrl = issue.html_url.split("/").slice(0, 5).join("/");
+                  window.open(`${repoUrl}/fork`, "_blank");
+                  setShowForkModal(false);
+                }}
+              >
+                Fork Now
+              </button>
+              <button
+                className="text-sm px-3 py-1 bg-green-600 text-white rounded"
+                onClick={() => {
+                  setShowForkModal(false);
+                  window.location.href = "/learn-fork";
+                }}
+              >
+                Learn Forking
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

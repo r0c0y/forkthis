@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import RepoSearchBar from "@/components/RepoSearchBar";
 import { fetchIssues } from "@/lib/github";
 import { summarizeIssue } from "@/lib/ai";
@@ -13,6 +12,7 @@ import ThemeSelector from "@/components/ThemeSelector";
 import IssueControls from "@/components/IssueControls";
 import Link from "next/link";
 import { logHistory } from "@/lib/history";
+import IssueCard from "@/components/IssueCard";
 
 interface ExtendedIssue extends GitHubIssue {
   summary: string;
@@ -81,7 +81,7 @@ export default function Home() {
       setLoading(false);
 
       // Fetch the rest in the background
-      // Since fetchIssues fetches all issues, no need to fetch more pages here.
+      // If fetchIssues fetches all issues, no need to fetch more pages here.
     } catch {
       if (fetchId + 1 !== currentFetchId) return;
       setError("Failed to fetch issues. Check repo name.");
@@ -110,28 +110,32 @@ export default function Home() {
 
   // --- SYNC STATE FROM URL ---
   useEffect(() => {
+
+    const repoFromUrl = searchParams.get("repo");
+    if (!repoFromUrl) return;
+
+    setFilter(searchParams.get("filter") || "All");
+    setFilterLabel(searchParams.get("filterLabel") || "");
+    setSortOrder(searchParams.get("sortOrder") || "newest");
+    setShowOpenOnly(searchParams.get("showOpenOnly") === "true");
+    setShowBeginnerOnly(searchParams.get("showBeginnerOnly") === "true");
+    setShowBookmarksOnly(searchParams.get("showBookmarksOnly") === "true");
+    setShowSummary(searchParams.get("showSummary") === "true");
+    setLastRepoSearched(repoFromUrl);
+
+    // Load bookmarks for this repo
     const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
-    const repo = searchParams.get("repo") || "";
-    setLastRepoSearched(repo);
-    setBookmarks(allBookmarks[repo] || []);
+    setBookmarks(allBookmarks[repoFromUrl] || []);
 
-    if (searchParams.get("filter")) setFilter(searchParams.get("filter") || "All");
-    if (searchParams.get("filterLabel")) setFilterLabel(searchParams.get("filterLabel") || "");
-    if (searchParams.get("sortOrder")) setSortOrder(searchParams.get("sortOrder") || "newest");
-    if (searchParams.get("showOpenOnly")) setShowOpenOnly(searchParams.get("showOpenOnly") === "true");
-    if (searchParams.get("showBeginnerOnly")) setShowBeginnerOnly(searchParams.get("showBeginnerOnly") === "true");
-    if (searchParams.get("showBookmarksOnly")) setShowBookmarksOnly(searchParams.get("showBookmarksOnly") === "true");
-    if (searchParams.get("showSummary")) setShowSummary(searchParams.get("showSummary") === "true");
-
-    if (repo) handleSearch(repo);
+    handleSearch(repoFromUrl);
     // eslint-disable-next-line
-  }, [searchParams]);
+  }, []);
 
   // --- SYNC STATE TO URL ---
   useEffect(() => {
     const params = new URLSearchParams();
     if (lastRepoSearched) params.set("repo", lastRepoSearched);
-    if (filter !== "All") params.set("filter", lastRepoSearched);
+    if (filter !== "All") params.set("filter", filter);
     if (filterLabel) params.set("filterLabel", filterLabel);
     if (sortOrder !== "newest") params.set("sortOrder", sortOrder);
     if (showOpenOnly) params.set("showOpenOnly", "true");
@@ -144,19 +148,26 @@ export default function Home() {
 
   // --- BOOKMARK HANDLERS ---
   const toggleBookmark = (issueNumber: number) => {
-    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const repo = lastRepoSearched;
+    if (!repo) return; // Prevent empty repo keys!
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const current = allBookmarks[repo] || [];
 
-    const updatedRepoBookmarks = current.includes(issueNumber)
-      ? current.filter((n: number) => n !== issueNumber)
-      : [...current, issueNumber];
+    let updatedRepoBookmarks: number[];
+    let action: "Bookmark" | "Remove Bookmark";
+    if (current.includes(issueNumber)) {
+      updatedRepoBookmarks = current.filter((n: number) => n !== issueNumber);
+      action = "Remove Bookmark";
+    } else {
+      updatedRepoBookmarks = [...current, issueNumber];
+      action = "Bookmark";
+    }
 
     allBookmarks[repo] = updatedRepoBookmarks;
     setBookmarks(updatedRepoBookmarks);
     localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
 
-    logHistory("Bookmark", `Bookmarked issue #${issueNumber} in ${lastRepoSearched}`);
+    logHistory(action, `${action} issue #${issueNumber} in ${repo}`);
   };
 
   const handleRemoveBookmark = (issueNumber: number) => {
@@ -206,6 +217,8 @@ export default function Home() {
     setAllIssues([]);
     setLastRepoSearched("");
     alert("Project reset.");
+
+    logHistory("Reset Project", "Reset all filters and cleared issues");
   };
 
   // --- LABELS & FILTERS ---
@@ -239,6 +252,26 @@ export default function Home() {
       }
       return 0;
     });
+
+  const generateShareURL = () => {
+    const params = new URLSearchParams({
+      repo: lastRepoSearched,
+      filter,
+      filterLabel,
+      sortOrder,
+      showOpenOnly: showOpenOnly.toString(),
+      showBeginnerOnly: showBeginnerOnly.toString(),
+      showBookmarksOnly: showBookmarksOnly.toString(),
+      showSummary: showSummary.toString(),
+    });
+    return `${window.location.origin}/?${params.toString()}`;
+  };
+
+  const handleCopyLink = () => {
+    const url = generateShareURL();
+    navigator.clipboard.writeText(url);
+    alert("📋 Link copied to clipboard!");
+  };
 
   // --- RENDER ---
   return (
@@ -318,77 +351,13 @@ export default function Home() {
       ) : (
         <ul className="mt-8 space-y-4">
           {filteredIssues.map((issue) => (
-            <li key={issue.number} className="border p-4 rounded-md shadow-sm">
-              <a
-                href={issue.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-blue-600 underline decoration-dotted"
-              >
-                #{issue.number} - {issue.title}
-              </a>
-
-              <div className="flex items-center gap-2 mb-1 mt-1">
-                <Image
-                  src={issue.user.avatar_url}
-                  alt={issue.user.login}
-                  width={24}
-                  height={24}
-                  className="w-6 h-6 rounded-full"
-                />
-                <p className="text-xs text-gray-500">by {issue.user.login}</p>
-              </div>
-
-              <div className="flex flex-wrap gap-1 mt-1">
-                {issue.labels.map((label) => {
-                  const isBeginnerLabel = /good first issue|beginner|easy/i.test(label.name);
-                  return (
-                    <span
-                      key={label.name}
-                      className={
-                        "text-xs px-2 py-0.5 rounded-full font-medium " +
-                        (isBeginnerLabel
-                          ? "bg-green-600 text-white border border-green-800"
-                          : "text-white")
-                      }
-                      style={!isBeginnerLabel ? { backgroundColor: `#${label.color}` } : {}}
-                    >
-                      {label.name}
-                    </span>
-                  );
-                })}
-              </div>
-
-              {showSummary && issue.summary && (
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                  💬 {issue.summary}
-                </p>
-              )}
-
-              <span className="inline-block mt-2 px-2 py-1 bg-gray-200 rounded text-sm font-medium">
-                Difficulty: {issue.difficulty}
-              </span>
-
-              <p className="text-xs mt-1">
-                {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} • Updated {new Date(issue.updated_at).toLocaleDateString()}
-              </p>
-
-              {bookmarks.includes(issue.number) ? (
-                <button
-                  onClick={() => handleRemoveBookmark(issue.number)}
-                  className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1 bg-red-100 text-red-700 border border-red-300 hover:bg-red-200"
-                >
-                  🗑 Remove Bookmark
-                </button>
-              ) : (
-                <button
-                  onClick={() => toggleBookmark(issue.number)}
-                  className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1 bg-gray-200 border border-gray-300 hover:bg-gray-300"
-                >
-                  ⭐ Bookmark
-                </button>
-              )}
-            </li>
+            <IssueCard
+              key={issue.number}
+              issue={issue}
+              isBookmarked={bookmarks.includes(issue.number)}
+              onBookmark={() => toggleBookmark(issue.number)}
+              onRemoveBookmark={() => handleRemoveBookmark(issue.number)}
+            />
           ))}
         </ul>
       )}
@@ -407,6 +376,18 @@ export default function Home() {
           </button>
         </div>
       )}
+
+      <button
+        onClick={handleCopyLink}
+        className="mt-2 text-sm text-blue-600 underline"
+      >
+        🔗 Copy Shareable Project Link
+      </button>
     </main>
   );
 }
+// --- END OF FILE ---
+// --- IGNORE ---
+// This is a generated file. Do not edit manually.
+// This file is part of the ForkThis project, which helps users find beginner-friendly GitHub issues to contribute to open source.
+
