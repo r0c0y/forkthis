@@ -79,12 +79,15 @@ export default function SavedProjectsPage() {
           📤 Export Projects
         </button>
 
-        <input
-          type="file"
-          accept="application/json"
-          onChange={handleImport}
-          className="mt-4"
-        />
+        <label className="bg-blue-600 text-white px-3 py-1 rounded text-sm cursor-pointer hover:bg-blue-700 flex items-center">
+          📥 Import Projects
+          <input
+            type="file"
+            accept="application/json"
+            onChange={handleImport}
+            className="hidden"
+          />
+        </label>
       </div>
 
       {projects.length === 0 ? (
