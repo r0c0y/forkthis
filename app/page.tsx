@@ -57,7 +57,7 @@ export default function Home() {
 
     try {
       // Fetch first page (show instantly)
-      const firstPage = await fetchIssues(repo, 1);
+      const firstPage = await fetchIssues(repo);
       const extendedFirst: ExtendedIssue[] = await Promise.all(
         firstPage.map(async (issue) => {
           let summary = "";
@@ -74,30 +74,14 @@ export default function Home() {
           return { ...issue, summary, difficulty };
         })
       );
-      if (fetchId + 1 !== currentFetchId) return;
+      if (fetchId + 1 !== currentFetchId) return; // Cancel if new search started
       setIssues(extendedFirst.slice(0, 10));
       setAllIssues(extendedFirst);
       setNextIndex(10);
       setLoading(false);
 
       // Fetch the rest in the background
-      let page = 2;
-      let keepFetching = true;
-      while (keepFetching) {
-        const nextPage = await fetchIssues(repo, page);
-        if (fetchId + 1 !== currentFetchId) return;
-        if (!nextPage.length) break;
-        const extendedNext: ExtendedIssue[] = await Promise.all(
-          nextPage.map(async (issue) => ({
-            ...issue,
-            summary: "",
-            difficulty: "Unknown",
-          }))
-        );
-        setAllIssues((prev) => [...prev, ...extendedNext]);
-        page++;
-        if (nextPage.length < 100) keepFetching = false;
-      }
+      // Since fetchIssues fetches all issues, no need to fetch more pages here.
     } catch {
       if (fetchId + 1 !== currentFetchId) return;
       setError("Failed to fetch issues. Check repo name.");
@@ -105,7 +89,6 @@ export default function Home() {
     }
 
     logHistory("Search", `Searched repo ${repo}`);
-    // eslint-disable-next-line
   }, [showSummary, fetchId]);
 
   // --- LOAD PROJECT FROM LOCALSTORAGE ---
@@ -122,7 +105,7 @@ export default function Home() {
       setShowSummary(parsed.showSummary || false);
       if (parsed.repo) handleSearch(parsed.repo);
     }
-    // eslint-disable-next-line
+    //eslint-disable-next-line
   }, []);
 
   // --- SYNC STATE FROM URL ---

@@ -54,6 +54,15 @@ export default function HistoryPage() {
       >
         ← Back to Home
       </button>
+      <button
+        onClick={() => {
+          setHistory([]);
+          localStorage.setItem("forkthis-history", "[]");
+        }}
+        className="mt-4 text-xs bg-red-200 text-red-700 px-3 py-1 rounded hover:bg-red-300"
+      >
+        Clear All History
+      </button>
     </main>
   );
 }
