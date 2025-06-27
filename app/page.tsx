@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useCallback } from "react"; // add this with other imports
-
+import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import RepoSearchBar from "@/components/RepoSearchBar";
 import { fetchIssues } from "@/lib/github";
@@ -12,6 +11,8 @@ import DifficultyFilter from "@/components/DifficultyFilter";
 import AISummaryToggle from "@/components/AISummaryToggle";
 import ThemeSelector from "@/components/ThemeSelector";
 import IssueControls from "@/components/IssueControls";
+import Link from "next/link";
+import { logHistory } from "@/lib/history";
 
 interface ExtendedIssue extends GitHubIssue {
   summary: string;
@@ -33,19 +34,32 @@ export default function Home() {
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [nextIndex, setNextIndex] = useState(10);
   const [lastRepoSearched, setLastRepoSearched] = useState("");
+  const [fetchId, setFetchId] = useState(0);
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // --- SEARCH & BACKGROUND FETCH ---
   const handleSearch = useCallback(async (repo: string) => {
+    const currentFetchId = fetchId + 1;
+    setFetchId(currentFetchId);
+
     setError("");
     setIssues([]);
     setAllIssues([]);
     setLoading(true);
     setLastRepoSearched(repo);
-    localStorage.setItem("lastRepo", repo); // ✅ Save repo name for bookmark page
+    localStorage.setItem("lastRepo", repo);
+
+    // Load bookmarks for this repo
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+    setBookmarks(allBookmarks[repo] || []);
 
     try {
-      const result = await fetchIssues(repo);
-      const extended: ExtendedIssue[] = await Promise.all(
-        result.map(async (issue) => {
+      // Fetch first page (show instantly)
+      const firstPage = await fetchIssues(repo, 1);
+      const extendedFirst: ExtendedIssue[] = await Promise.all(
+        firstPage.map(async (issue) => {
           let summary = "";
           let difficulty: ExtendedIssue["difficulty"] = "Unknown";
           if (showSummary) {
@@ -57,30 +71,45 @@ export default function Home() {
               console.error("Summary error:", e);
             }
           }
-          return {
-            ...issue,
-            summary,
-            difficulty,
-          };
+          return { ...issue, summary, difficulty };
         })
       );
-
-      setAllIssues(extended);
-      setIssues(extended.slice(0, 10));
+      if (fetchId + 1 !== currentFetchId) return;
+      setIssues(extendedFirst.slice(0, 10));
+      setAllIssues(extendedFirst);
       setNextIndex(10);
-    } catch (err) {
-      console.error("GitHub fetch error:", err);
+      setLoading(false);
+
+      // Fetch the rest in the background
+      let page = 2;
+      let keepFetching = true;
+      while (keepFetching) {
+        const nextPage = await fetchIssues(repo, page);
+        if (fetchId + 1 !== currentFetchId) return;
+        if (!nextPage.length) break;
+        const extendedNext: ExtendedIssue[] = await Promise.all(
+          nextPage.map(async (issue) => ({
+            ...issue,
+            summary: "",
+            difficulty: "Unknown",
+          }))
+        );
+        setAllIssues((prev) => [...prev, ...extendedNext]);
+        page++;
+        if (nextPage.length < 100) keepFetching = false;
+      }
+    } catch {
+      if (fetchId + 1 !== currentFetchId) return;
       setError("Failed to fetch issues. Check repo name.");
-    } finally {
       setLoading(false);
     }
-  }, [showSummary]);
 
-  // 🆕 Load state from localStorage project (if present)
+    logHistory("Search", `Searched repo ${repo}`);
+    // eslint-disable-next-line
+  }, [showSummary, fetchId]);
+
+  // --- LOAD PROJECT FROM LOCALSTORAGE ---
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("bookmarkedIssues") || "[]");
-    setBookmarks(stored);
-
     const savedProject = localStorage.getItem("forkthis-project");
     if (savedProject) {
       const parsed = JSON.parse(savedProject);
@@ -93,27 +122,75 @@ export default function Home() {
       setShowSummary(parsed.showSummary || false);
       if (parsed.repo) handleSearch(parsed.repo);
     }
-  }, [handleSearch]); // ✅ include handleSearch now that it's memoized
+    // eslint-disable-next-line
+  }, []);
 
+  // --- SYNC STATE FROM URL ---
   useEffect(() => {
     const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
-    setBookmarks(allBookmarks[lastRepoSearched] || []);
-  }, [lastRepoSearched]);
+    const repo = searchParams.get("repo") || "";
+    setLastRepoSearched(repo);
+    setBookmarks(allBookmarks[repo] || []);
 
+    if (searchParams.get("filter")) setFilter(searchParams.get("filter") || "All");
+    if (searchParams.get("filterLabel")) setFilterLabel(searchParams.get("filterLabel") || "");
+    if (searchParams.get("sortOrder")) setSortOrder(searchParams.get("sortOrder") || "newest");
+    if (searchParams.get("showOpenOnly")) setShowOpenOnly(searchParams.get("showOpenOnly") === "true");
+    if (searchParams.get("showBeginnerOnly")) setShowBeginnerOnly(searchParams.get("showBeginnerOnly") === "true");
+    if (searchParams.get("showBookmarksOnly")) setShowBookmarksOnly(searchParams.get("showBookmarksOnly") === "true");
+    if (searchParams.get("showSummary")) setShowSummary(searchParams.get("showSummary") === "true");
+
+    if (repo) handleSearch(repo);
+    // eslint-disable-next-line
+  }, [searchParams]);
+
+  // --- SYNC STATE TO URL ---
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (lastRepoSearched) params.set("repo", lastRepoSearched);
+    if (filter !== "All") params.set("filter", lastRepoSearched);
+    if (filterLabel) params.set("filterLabel", filterLabel);
+    if (sortOrder !== "newest") params.set("sortOrder", sortOrder);
+    if (showOpenOnly) params.set("showOpenOnly", "true");
+    if (showBeginnerOnly) params.set("showBeginnerOnly", "true");
+    if (showBookmarksOnly) params.set("showBookmarksOnly", "true");
+    if (showSummary) params.set("showSummary", "true");
+    router.push("/?" + params.toString());
+    // eslint-disable-next-line
+  }, [filter, filterLabel, sortOrder, showOpenOnly, showBeginnerOnly, showBookmarksOnly, showSummary, lastRepoSearched]);
+
+  // --- BOOKMARK HANDLERS ---
   const toggleBookmark = (issueNumber: number) => {
     const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const repo = lastRepoSearched;
     const current = allBookmarks[repo] || [];
 
     const updatedRepoBookmarks = current.includes(issueNumber)
-      ? current.filter((n: number)=> n !== issueNumber)
+      ? current.filter((n: number) => n !== issueNumber)
       : [...current, issueNumber];
 
     allBookmarks[repo] = updatedRepoBookmarks;
     setBookmarks(updatedRepoBookmarks);
     localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
+
+    logHistory("Bookmark", `Bookmarked issue #${issueNumber} in ${lastRepoSearched}`);
   };
 
+  const handleRemoveBookmark = (issueNumber: number) => {
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+    const repo = lastRepoSearched;
+    const current = allBookmarks[repo] || [];
+
+    const updatedRepoBookmarks = current.filter((n: number) => n !== issueNumber);
+
+    allBookmarks[repo] = updatedRepoBookmarks;
+    setBookmarks(updatedRepoBookmarks);
+    localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
+
+    logHistory("Remove Bookmark", `Removed issue #${issueNumber} from ${lastRepoSearched}`);
+  };
+
+  // --- PROJECT SAVE/RESET ---
   const saveProject = () => {
     const name = prompt("Enter a name for this project:");
     if (!name) return;
@@ -129,6 +206,8 @@ export default function Home() {
     };
     localStorage.setItem(`forkthis-project:${name}`, JSON.stringify(projectData));
     alert("✅ Project saved!");
+
+    logHistory("Save Project", `Saved project: ${name}`);
   };
 
   const handleClearProject = () => {
@@ -146,7 +225,7 @@ export default function Home() {
     alert("Project reset.");
   };
 
-  // Remove unused handleRepoInput, and use handleSearch directly via RepoSearchBar
+  // --- LABELS & FILTERS ---
   const allLabels = Array.from(
     new Set(allIssues.flatMap((issue) => issue.labels.map((label) => label.name)))
   );
@@ -178,18 +257,19 @@ export default function Home() {
       return 0;
     });
 
+  // --- RENDER ---
   return (
     <main className="p-8 max-w-3xl mx-auto">
       <h1 className="text-4xl font-bold text-center">🚀 ForkThis</h1>
-      <a href="/projects" className="text-sm underline text-blue-600 hover:text-blue-800">
-  🗂 View Saved Projects
-      </a>
-      <a
-  href="/bookmarks"
-  className="text-sm underline text-blue-600 hover:text-blue-800 block mt-2"
->
-  ⭐ View Bookmarked Issues
-</a>
+      <Link href="/projects" className="text-blue-600 underline text-sm hover:text-blue-800">
+        📁 View Saved Projects
+      </Link>
+      <Link href="/bookmarks" className="text-sm underline text-blue-600 hover:text-blue-800 block mt-2">
+        ⭐ View Bookmarked Issues
+      </Link>
+      <Link href="/history" className="text-sm underline text-blue-600 hover:text-blue-800 block mt-2">
+        🕓 View History
+      </Link>
       <p className="text-gray-500 text-center mt-2">
         Find beginner-friendly GitHub issues.
       </p>
@@ -310,21 +390,21 @@ export default function Home() {
                 {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} • Updated {new Date(issue.updated_at).toLocaleDateString()}
               </p>
 
-              <button
-                onClick={() => toggleBookmark(issue.number)}
-                className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1"
-                style={{
-                  backgroundColor: bookmarks.includes(issue.number)
-                    ? "rgb(229 231 235)"
-                    : "rgb(229 231 235)",
-                  color: bookmarks.includes(issue.number) ? "rgb(37 99 235)" : "inherit",
-                  border: bookmarks.includes(issue.number)
-                    ? "1px solid rgb(37 99 235)"
-                    : "1px solid transparent",
-                }}
-              >
-                {bookmarks.includes(issue.number) ? "⭐ Bookmarked" : "⭐ Bookmark"}
-              </button>
+              {bookmarks.includes(issue.number) ? (
+                <button
+                  onClick={() => handleRemoveBookmark(issue.number)}
+                  className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1 bg-red-100 text-red-700 border border-red-300 hover:bg-red-200"
+                >
+                  🗑 Remove Bookmark
+                </button>
+              ) : (
+                <button
+                  onClick={() => toggleBookmark(issue.number)}
+                  className="mt-2 text-sm px-3 py-1 rounded-md transition-all flex items-center gap-1 bg-gray-200 border border-gray-300 hover:bg-gray-300"
+                >
+                  ⭐ Bookmark
+                </button>
+              )}
             </li>
           ))}
         </ul>

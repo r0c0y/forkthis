@@ -35,6 +35,14 @@ export default function BookmarksPage() {
     loadBookmarks();
   }, []);
 
+  const handleRemoveBookmark = (issueNumber: number) => {
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
+    const repo = "vercel/next.js"; // or lastRepoSearched
+    allBookmarks[repo] = (allBookmarks[repo] || []).filter((n: number) => n !== issueNumber);
+    localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
+    setIssues((prev) => prev.filter((issue) => issue.number !== issueNumber));
+  };
+
   return (
     <main className="max-w-3xl mx-auto p-8">
       <h1 className="text-3xl font-bold mb-4">⭐ Bookmarked Issues</h1>
@@ -71,6 +79,12 @@ export default function BookmarksPage() {
               <p className="text-xs mt-1">
                 {issue.state === "open" ? "🟢 Open" : "🔴 Closed"} • Updated {new Date(issue.updated_at).toLocaleDateString()}
               </p>
+              <button
+                onClick={() => handleRemoveBookmark(issue.number)}
+                className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
+              >
+                Remove
+              </button>
             </li>
           ))}
         </ul>

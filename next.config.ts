@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
-    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    GITHUB_TOKENS: process.env.GITHUB_TOKENS,
   },
   // ...other config options if needed
 };
