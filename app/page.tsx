@@ -13,6 +13,8 @@ import IssueControls from "@/components/IssueControls";
 import Link from "next/link";
 import { logHistory } from "@/lib/history";
 import IssueCard from "@/components/IssueCard";
+import SessionWrapper from "@/components/SessionWrapper";
+import { useSession, signIn, signOut } from "next-auth/react";
 
 interface ExtendedIssue extends GitHubIssue {
   summary: string;
@@ -20,6 +22,14 @@ interface ExtendedIssue extends GitHubIssue {
 }
 
 export default function Home() {
+  return (
+    <SessionWrapper>
+      <HomeContent />
+    </SessionWrapper>
+  );
+}
+
+function HomeContent() {
   const [issues, setIssues] = useState<ExtendedIssue[]>([]);
   const [allIssues, setAllIssues] = useState<ExtendedIssue[]>([]);
   const [error, setError] = useState("");
@@ -35,9 +45,12 @@ export default function Home() {
   const [nextIndex, setNextIndex] = useState(10);
   const [lastRepoSearched, setLastRepoSearched] = useState("");
   const [fetchId, setFetchId] = useState(0);
+  const [lastSession, setLastSession] = useState<Record<string, unknown> | null>(null);
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
 
   // --- SEARCH & BACKGROUND FETCH ---
   const handleSearch = useCallback(async (repo: string) => {
@@ -105,8 +118,18 @@ export default function Home() {
       setShowSummary(parsed.showSummary || false);
       if (parsed.repo) handleSearch(parsed.repo);
     }
-    //eslint-disable-next-line
-  }, []);
+
+    const session = localStorage.getItem("forkthis-last-session");
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        setLastSession(parsed);
+        setShowRestorePrompt(true);
+      } catch {
+        // ignore
+      }
+    }
+  }, [handleSearch]);
 
   // --- SYNC STATE FROM URL ---
   useEffect(() => {
@@ -133,15 +156,16 @@ export default function Home() {
 
   // --- SYNC STATE TO URL ---
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (lastRepoSearched) params.set("repo", lastRepoSearched);
-    if (filter !== "All") params.set("filter", filter);
-    if (filterLabel) params.set("filterLabel", filterLabel);
-    if (sortOrder !== "newest") params.set("sortOrder", sortOrder);
-    if (showOpenOnly) params.set("showOpenOnly", "true");
-    if (showBeginnerOnly) params.set("showBeginnerOnly", "true");
-    if (showBookmarksOnly) params.set("showBookmarksOnly", "true");
-    if (showSummary) params.set("showSummary", "true");
+    const params = new URLSearchParams({
+      repo: lastRepoSearched,
+      filter,
+      filterLabel,
+      sortOrder,
+      showOpenOnly: showOpenOnly.toString(),
+      showBeginnerOnly: showBeginnerOnly.toString(),
+      showBookmarksOnly: showBookmarksOnly.toString(),
+      showSummary: showSummary.toString(),
+    });
     router.push("/?" + params.toString());
     // eslint-disable-next-line
   }, [filter, filterLabel, sortOrder, showOpenOnly, showBeginnerOnly, showBookmarksOnly, showSummary, lastRepoSearched]);
@@ -149,7 +173,7 @@ export default function Home() {
   // --- BOOKMARK HANDLERS ---
   const toggleBookmark = (issueNumber: number) => {
     const repo = lastRepoSearched;
-    if (!repo) return; // Prevent empty repo keys!
+    if (!repo) return;
     const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const current = allBookmarks[repo] || [];
 
@@ -171,17 +195,15 @@ export default function Home() {
   };
 
   const handleRemoveBookmark = (issueNumber: number) => {
-    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const repo = lastRepoSearched;
+    if (!repo) return;
+    const allBookmarks = JSON.parse(localStorage.getItem("bookmarkedIssues") || "{}");
     const current = allBookmarks[repo] || [];
-
     const updatedRepoBookmarks = current.filter((n: number) => n !== issueNumber);
-
     allBookmarks[repo] = updatedRepoBookmarks;
     setBookmarks(updatedRepoBookmarks);
     localStorage.setItem("bookmarkedIssues", JSON.stringify(allBookmarks));
-
-    logHistory("Remove Bookmark", `Removed issue #${issueNumber} from ${lastRepoSearched}`);
+    logHistory("Remove Bookmark", `Removed issue #${issueNumber} from ${repo}`);
   };
 
   // --- PROJECT SAVE/RESET ---
@@ -277,6 +299,7 @@ export default function Home() {
   return (
     <main className="p-8 max-w-3xl mx-auto">
       <h1 className="text-4xl font-bold text-center">🚀 ForkThis</h1>
+     
       <Link href="/projects" className="text-blue-600 underline text-sm hover:text-blue-800">
         📁 View Saved Projects
       </Link>
@@ -383,9 +406,67 @@ export default function Home() {
       >
         🔗 Copy Shareable Project Link
       </button>
+
+      {showRestorePrompt && lastSession && (
+        <div className="bg-yellow-100 border border-yellow-300 p-4 mb-4 rounded shadow-sm">
+          <p className="mb-2 font-medium">🕘 Previous session detected:</p>
+          <p className="text-sm mb-3">
+            Restore project <strong>{typeof lastSession.repo === "string" ? lastSession.repo : "previous project"}</strong>?
+          </p>
+          <div className="flex gap-4">
+            <button
+              className="bg-blue-600 text-white px-4 py-1 rounded"
+              onClick={() => {
+                setShowRestorePrompt(false);
+                if (lastSession.repo) {
+                  handleSearch(lastSession.repo as string);
+                  setFilter(lastSession.filter as string || "All");
+                  setFilterLabel(lastSession.filterLabel as string || "");
+                  setSortOrder(lastSession.sortOrder as string || "newest");
+                  setShowOpenOnly(!!lastSession.showOpenOnly);
+                  setShowBeginnerOnly(!!lastSession.showBeginnerOnly);
+                  setShowBookmarksOnly(!!lastSession.showBookmarksOnly);
+                  setShowSummary(!!lastSession.showSummary);
+                }
+              }}
+            >
+              🔁 Restore Session
+            </button>
+            <button
+              className="bg-gray-300 px-3 py-1 rounded"
+              onClick={() => setShowRestorePrompt(false)}
+            >
+              ❌ Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      <header className="flex justify-end items-center gap-4 mb-4">
+        {session ? (
+          <>
+            <span className="text-sm">👤 {session.user?.name || session.user?.email}</span>
+            <Link href="/profile" className="underline text-blue-600 text-sm">Profile</Link>
+            <button
+              onClick={() => signOut()}
+              className="bg-red-500 text-white px-3 py-1 rounded text-sm"
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => signIn()}
+            className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
+          >
+            Login
+          </button>
+        )}
+      </header>
     </main>
   );
 }
+
 // --- END OF FILE ---
 // --- IGNORE ---
 // This is a generated file. Do not edit manually.

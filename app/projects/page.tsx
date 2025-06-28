@@ -11,6 +11,7 @@ interface SavedProject {
 
 export default function SavedProjectsPage() {
   const [projects, setProjects] = useState<SavedProject[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -23,6 +24,11 @@ export default function SavedProjectsPage() {
     setProjects(entries);
   }, []);
 
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
   const handleLoad = (project: SavedProject) => {
     localStorage.setItem("forkthis-project", JSON.stringify(project.data));
     router.push("/");
@@ -31,6 +37,7 @@ export default function SavedProjectsPage() {
   const handleDelete = (name: string) => {
     localStorage.removeItem(`forkthis-project:${name}`);
     setProjects(projects.filter((p) => p.name !== name));
+    showToast("Project deleted!");
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,40 +47,63 @@ export default function SavedProjectsPage() {
     reader.onload = (event) => {
       try {
         const imported = JSON.parse(event.target?.result as string);
-        // Save each project to localStorage
+        let overwrite = false;
+        let importedCount = 0;
+        Object.entries(imported).forEach(([key]) => {
+          if (localStorage.getItem(key)) {
+            overwrite = true;
+          }
+        });
+        if (overwrite) {
+          if (!window.confirm("Some projects already exist. Overwrite them?")) return;
+        }
         Object.entries(imported).forEach(([key, value]) => {
           localStorage.setItem(key, JSON.stringify(value));
+          importedCount++;
         });
-        alert("Projects imported!");
+        showToast(`Imported ${importedCount} project${importedCount !== 1 ? "s" : ""}!`);
         window.location.reload();
       } catch {
-        alert("Invalid file.");
+        showToast("Invalid file.");
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleExport = () => {
+    const projectsToExport: Record<string, unknown> = {};
+    Object.entries(localStorage)
+      .filter(([key]) => key.startsWith("forkthis-project:"))
+      .forEach(([key, value]) => {
+        projectsToExport[key] = JSON.parse(value);
+      });
+    if (Object.keys(projectsToExport).length === 0) {
+      showToast("No projects to export.");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(projectsToExport, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "forkthis-projects.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Projects exported!");
   };
 
   return (
     <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-4">📦 Saved Projects</h1>
 
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded shadow z-50">
+          {toast}
+        </div>
+      )}
+
       <div className="flex gap-2 mb-4">
         <button
-          onClick={() => {
-            // Gather all projects into an object
-            const projectsToExport: Record<string, unknown> = {};
-            Object.entries(localStorage)
-              .filter(([key]) => key.startsWith("forkthis-project:"))
-              .forEach(([key, value]) => {
-                projectsToExport[key] = JSON.parse(value);
-              });
-            const blob = new Blob([JSON.stringify(projectsToExport, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "forkthis-projects.json";
-            a.click();
-          }}
+          onClick={handleExport}
           className="bg-green-600 text-white px-3 py-1 rounded text-sm"
         >
           📤 Export Projects
