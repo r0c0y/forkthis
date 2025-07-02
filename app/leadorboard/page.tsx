@@ -5,12 +5,11 @@ import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import LeaderboardCard from '@/components/LeaderboardCard';
-import { RepoSearchBar } from '@/components/RepoSearchBar'; // Assuming this can be reused
+import RepoSearchBar from '@/components/RepoSearchBar'; // Assuming this can be reused
 
 export default function LeaderboardPage() {
   const { data: session, status } = useSession();
   const { leaderboardData, error, loading, generateLeaderboard } = useLeaderboard();
-  const [repo, setRepo] = useState('');
   const [currentRepo, setCurrentRepo] = useState('');
 
   useEffect(() => {
@@ -21,7 +20,6 @@ export default function LeaderboardPage() {
 
   const handleSearch = (searchRepo: string) => {
     if (searchRepo) {
-      setRepo(searchRepo);
       setCurrentRepo(searchRepo); // Set current repo when search is initiated
       generateLeaderboard(searchRepo);
     }
@@ -44,7 +42,7 @@ export default function LeaderboardPage() {
     <main className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-6 text-center text-gray-100">Project Contributor Leaderboard</h1>
 
-      <RepoSearchBar onSearch={handleSearch} initialRepo="" />
+      <RepoSearchBar onSearch={handleSearch} />
 
       {loading && <p className="text-center text-blue-400 mt-6">Loading leaderboard data for <span className="font-semibold">{currentRepo}</span>...</p>}
       {error && <p className="text-center text-red-500 mt-6">{error}</p>}
